@@ -72,7 +72,7 @@
                 v-bind="tip"
                 size="small"
                 :variant="channel.noVision ? 'tonal' : 'text'"
-                :color="channel.noVision ? 'warning' : 'grey'"
+                :color="channel.noVision ? 'warning' : undefined"
                 rounded="lg"
                 @click="$emit('toggleVision', channel.index)"
               >

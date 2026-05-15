@@ -14,11 +14,11 @@
           </div>
         </div>
         <div v-if="isEditing && props.channelType !== 'images'" class="header-capability-actions">
-          <v-tooltip location="bottom" :text="form.noVision ? t('addChannel.visionDisabled') : t('addChannel.visionEnabled')" :open-delay="150" content-class="key-tooltip">
+          <v-tooltip location="bottom" :text="form.noVision ? t('addChannel.noVisionHint') : t('addChannel.visionChannelEnabled')" :open-delay="150" content-class="key-tooltip">
             <template #activator="{ props: tip }">
               <v-btn
                 v-bind="tip"
-                :color="form.noVision ? 'warning' : 'grey'"
+                :color="form.noVision ? 'warning' : undefined"
                 :variant="form.noVision ? 'tonal' : 'text'"
                 size="small"
                 icon
@@ -303,7 +303,7 @@
                                 <v-btn
                                   v-bind="tip"
                                   size="small"
-                                  :color="isModelNoVision(target) ? 'warning' : 'grey'"
+                                  :color="isModelNoVision(target) ? 'warning' : undefined"
                                   icon
                                   variant="text"
                                   @click="toggleModelVision(target)"

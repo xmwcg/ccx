@@ -227,6 +227,7 @@ export type MessageKey =
   | 'addChannel.noVisionHint'
   | 'addChannel.visionDisabled'
   | 'addChannel.visionEnabled'
+  | 'addChannel.visionChannelEnabled'
   | 'addChannel.visionFallbackLabel'
   | 'addChannel.visionFallbackPlaceholder'
   | 'addChannel.passbackReasoningContentLabel'
@@ -627,6 +628,7 @@ export const messages: Record<SupportedLocale, Record<MessageKey, string>> = {
     'addChannel.noVisionHint': 'When enabled, requests with images will skip this channel and failover to the next',
     'addChannel.visionDisabled': 'This model does not support image input',
     'addChannel.visionEnabled': 'This model supports image input',
+    'addChannel.visionChannelEnabled': 'This channel supports image input',
     'addChannel.visionFallbackLabel': 'Vision fallback model',
     'addChannel.visionFallbackPlaceholder': 'Model to use when request contains images',
     'addChannel.passbackReasoningContentLabel': 'Passback reasoning content',
@@ -1026,6 +1028,7 @@ export const messages: Record<SupportedLocale, Record<MessageKey, string>> = {
     'addChannel.noVisionHint': 'Jika aktif, permintaan dengan gambar akan melewati channel ini dan failover ke channel berikutnya',
     'addChannel.visionDisabled': 'Model ini tidak mendukung input gambar',
     'addChannel.visionEnabled': 'Model ini mendukung input gambar',
+    'addChannel.visionChannelEnabled': 'Channel ini mendukung input gambar',
     'addChannel.visionFallbackLabel': 'Model fallback vision',
     'addChannel.visionFallbackPlaceholder': 'Model yang digunakan saat permintaan mengandung gambar',
     'addChannel.passbackReasoningContentLabel': 'Teruskan reasoning content',
@@ -1425,6 +1428,7 @@ export const messages: Record<SupportedLocale, Record<MessageKey, string>> = {
     'addChannel.noVisionHint': '启用后，包含图片的请求将跳过此渠道并 failover 到下一个渠道',
     'addChannel.visionDisabled': '此模型不支持图片输入',
     'addChannel.visionEnabled': '此模型支持图片输入',
+    'addChannel.visionChannelEnabled': '此渠道支持图片输入',
     'addChannel.visionFallbackLabel': '视觉回退模型',
     'addChannel.visionFallbackPlaceholder': '含图请求时使用的替代模型',
     'addChannel.passbackReasoningContentLabel': '回传 Reasoning Content',
