@@ -154,6 +154,10 @@ func initSchema(db *sql.DB) error {
 		-- 索引：按 metrics_key 查询
 		CREATE INDEX IF NOT EXISTS idx_records_metrics_key
 			ON request_records(metrics_key);
+
+		-- 索引：按 api_type + metrics_key + timestamp 查询（渠道级长时间范围聚合）
+		CREATE INDEX IF NOT EXISTS idx_records_api_type_metrics_key_timestamp
+			ON request_records(api_type, metrics_key, timestamp);
 	`
 
 	if _, err := db.Exec(schema); err != nil {
@@ -195,6 +199,11 @@ func initSchema(db *sql.DB) error {
 			}
 		}
 		log.Printf("[SQLite-Migration] schema 升级: v1 -> v2 (添加 failure_class 列与 circuit_states 表)")
+	}
+
+	// 复合索引：无论 schema 版本如何，幂等创建（不改变 user_version，避免干扰 v2→v3 数据迁移流程）
+	if _, err := db.Exec("CREATE INDEX IF NOT EXISTS idx_records_api_type_metrics_key_timestamp ON request_records(api_type, metrics_key, timestamp)"); err != nil {
+		return fmt.Errorf("create composite index failed: %w", err)
 	}
 
 	return nil

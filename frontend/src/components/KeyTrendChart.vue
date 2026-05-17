@@ -17,6 +17,8 @@
           <v-btn value="6h" size="x-small" class="chart-control-btn">{{ t('chart.6h') }}</v-btn>
           <v-btn value="24h" size="x-small" class="chart-control-btn">{{ t('chart.24h') }}</v-btn>
           <v-btn value="today" size="x-small" class="chart-control-btn">{{ t('chart.today') }}</v-btn>
+          <v-btn value="7d" size="x-small" class="chart-control-btn">{{ t('chart.7d') }}</v-btn>
+          <v-btn value="30d" size="x-small" class="chart-control-btn">{{ t('chart.30d') }}</v-btn>
         </v-btn-toggle>
 
         <v-btn icon size="x-small" variant="text" :loading="isLoading" :disabled="isLoading" @click="refreshData">
@@ -39,6 +41,28 @@
           {{ t('chart.cacheRw') }}
         </v-btn>
       </v-btn-toggle>
+    </div>
+
+    <!-- Summary cards -->
+    <div v-if="summaryData && !isLoading" class="summary-cards d-flex flex-wrap ga-2 mb-3">
+      <div class="summary-card">
+        <div class="summary-label">{{ t('chart.totalRequests') }}</div>
+        <div class="summary-value">{{ formatNumber(summaryData.totalRequests) }}</div>
+      </div>
+      <div class="summary-card">
+        <div class="summary-label">{{ t('chart.successRate') }}</div>
+        <div class="summary-value" :class="{ 'text-success': summaryData.avgSuccessRate >= 95, 'text-warning': summaryData.avgSuccessRate >= 80 && summaryData.avgSuccessRate < 95, 'text-error': summaryData.avgSuccessRate < 80 }">
+          {{ summaryData.avgSuccessRate.toFixed(1) }}%
+        </div>
+      </div>
+      <div class="summary-card">
+        <div class="summary-label">{{ t('chart.inputTokens') }}</div>
+        <div class="summary-value">{{ formatNumber(summaryData.totalInputTokens) }}</div>
+      </div>
+      <div class="summary-card">
+        <div class="summary-label">{{ t('chart.outputTokens') }}</div>
+        <div class="summary-value">{{ formatNumber(summaryData.totalOutputTokens) }}</div>
+      </div>
     </div>
 
     <!-- Loading state -->
@@ -71,7 +95,7 @@ import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import { useTheme } from 'vuetify'
 import VueApexCharts from 'vue3-apexcharts'
 import type { ApexOptions } from 'apexcharts'
-import { api, type ChannelKeyMetricsHistoryResponse } from '../services/api'
+import { api, type ChannelKeyMetricsHistoryResponse, type GlobalStatsSummary } from '../services/api'
 import { useGlobalTick } from '../composables/useGlobalTick'
 import { useI18n } from '../i18n'
 
@@ -87,7 +111,7 @@ const { t } = useI18n()
 
 // View mode type
 type ViewMode = 'traffic' | 'tokens' | 'cache'
-type Duration = '1h' | '6h' | '24h' | 'today'
+type Duration = '1h' | '6h' | '24h' | 'today' | '7d' | '30d'
 
 // LocalStorage keys for preferences (per channelType)
 const getStorageKey = (channelType: string, key: string) => `keyTrendChart:${channelType}:${key}`
@@ -110,7 +134,7 @@ const loadSavedPreferences = (channelType: string): { view: ViewMode; duration: 
     const savedDuration = window.localStorage.getItem(getStorageKey(channelType, 'duration')) as Duration | null
     return {
       view: savedView && ['traffic', 'tokens', 'cache'].includes(savedView) ? savedView : 'traffic',
-      duration: savedDuration && ['1h', '6h', '24h', 'today'].includes(savedDuration) ? savedDuration : '1h'
+      duration: savedDuration && ['1h', '6h', '24h', 'today', '7d', '30d'].includes(savedDuration) ? savedDuration : '1h'
     }
   } catch {
     return { view: 'traffic', duration: '1h' }
@@ -179,12 +203,14 @@ const keyColors = [
 const FAILURE_RATE_THRESHOLD = 0.1 // 10%
 
 // Aggregation interval settings (kept consistent with the backend)
-// 1h = 1m, 6h = 5m, 24h = 15m, today = dynamically calculated
+// 1h = 1m, 6h = 5m, 24h = 15m, today = dynamically calculated, 7d = 1h, 30d = 4h
 const AGGREGATION_INTERVALS: Record<Duration, number> = {
   '1h': 60000,    // 1 minute
   '6h': 300000,   // 5 minutes
   '24h': 900000,  // 15 minutes
-  'today': 300000 // 5 minutes (today uses 5-minute intervals by default)
+  'today': 300000, // 5 minutes (today uses 5-minute intervals by default)
+  '7d': 3600000,   // 1 hour
+  '30d': 14400000  // 4 hours
 }
 
 // Get the aggregation interval based on the selected duration
@@ -208,6 +234,39 @@ const hasData = computed(() => {
   return historyData.value.keys &&
     historyData.value.keys.length > 0 &&
     historyData.value.keys.some(k => k.dataPoints && k.dataPoints.length > 0)
+})
+
+// Summary data from server response (or fallback from dataPoints)
+const summaryData = computed<GlobalStatsSummary | null>(() => {
+  if (!historyData.value) return null
+  if (historyData.value.summary) return historyData.value.summary
+  // Fallback: aggregate from displayed keys
+  if (!historyData.value.keys?.length) return null
+  let totalRequests = 0, totalSuccess = 0, totalFailure = 0
+  let totalInputTokens = 0, totalOutputTokens = 0
+  let totalCacheCreationTokens = 0, totalCacheReadTokens = 0
+  for (const key of historyData.value.keys) {
+    for (const p of key.dataPoints) {
+      totalRequests += p.requestCount
+      totalSuccess += p.successCount
+      totalFailure += p.failureCount
+      totalInputTokens += p.inputTokens || 0
+      totalOutputTokens += p.outputTokens || 0
+      totalCacheCreationTokens += p.cacheCreationTokens || 0
+      totalCacheReadTokens += p.cacheReadTokens || 0
+    }
+  }
+  return {
+    totalRequests,
+    totalSuccess,
+    totalFailure,
+    totalInputTokens,
+    totalOutputTokens,
+    totalCacheCreationTokens,
+    totalCacheReadTokens,
+    avgSuccessRate: totalRequests > 0 ? (totalSuccess / totalRequests) * 100 : 0,
+    duration: selectedDuration.value
+  }
 })
 
 // Computed: calculate the weighted average failure rate for each time point for background bands
@@ -414,7 +473,7 @@ const chartOptions = computed<ApexOptions>(() => {
       type: 'datetime',
       labels: {
         datetimeUTC: false,
-        format: 'HH:mm',
+        format: selectedDuration.value === '7d' || selectedDuration.value === '30d' ? 'MM-dd HH:mm' : 'HH:mm',
         style: { fontSize: '11px', colors: theme.global.current.value.dark ? '#9ca3af' : '#6b7280' }
       },
       axisBorder: { show: false },
@@ -636,6 +695,8 @@ const _getDurationMs = (duration: Duration): number => {
     case '1h': return 60 * 60 * 1000
     case '6h': return 6 * 60 * 60 * 1000
     case '24h': return 24 * 60 * 60 * 1000
+    case '7d': return 7 * 24 * 60 * 60 * 1000
+    case '30d': return 30 * 24 * 60 * 60 * 1000
     case 'today': {
       // Calculate milliseconds from the start of today to now
       const now = new Date()
@@ -818,5 +879,37 @@ defineExpose({
 
 .chart-area {
   margin-top: 8px;
+}
+
+.summary-cards {
+  display: flex;
+  flex-wrap: wrap;
+}
+
+.summary-card {
+  flex: 1 1 auto;
+  min-width: 80px;
+  padding: 8px 12px;
+  background: rgba(var(--v-theme-surface-variant), 0.3);
+  border-radius: 6px;
+  text-align: center;
+}
+
+.v-theme--dark .summary-card {
+  background: rgba(var(--v-theme-surface-variant), 0.2);
+}
+
+.summary-label {
+  font-size: 12px;
+  color: rgba(var(--v-theme-on-surface), 0.72);
+  margin-bottom: 2px;
+  line-height: 1.4;
+  font-weight: 500;
+}
+
+.summary-value {
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.3;
 }
 </style>

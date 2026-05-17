@@ -1,5 +1,12 @@
 ## [Unreleased]
 
+### 新增
+
+- **渠道统计对齐接入点统计** - 渠道 Key 趋势图新增 7d/30d 时间维度，并展示总请求次数、成功率、输入/输出 Token 汇总卡片，与接入点总览统计对齐 (#72)
+  - 后端：`HistoryDataPoint` 补充 Token 字段；`MetricsHistoryResponse` / `ChannelKeyMetricsHistoryResponse` 新增 `summary` 汇总；Key 趋势接口移除 24h 上限，支持 30 天范围 SQLite 聚合
+  - 前端：`KeyTrendChart` 新增 7d/30d 按钮、summary cards、长时间范围 x 轴日期格式
+  - SQLite：新增 `idx_records_api_type_metrics_key_timestamp` 复合索引优化渠道级长范围查询
+
 ### 改进
 
 - **Override 熔断自动清除** - 当驾驶舱设置的 override（next channel）序列中所有渠道均不可用（熔断）时，调度器自动清除该 override 而非仅跳过，避免前端 NEXT 标签长期残留

@@ -353,6 +353,10 @@ export interface HistoryDataPoint {
   successCount: number
   failureCount: number
   successRate: number
+  inputTokens?: number
+  outputTokens?: number
+  cacheCreationTokens?: number
+  cacheReadTokens?: number
 }
 
 // 渠道历史指标响应
@@ -360,6 +364,7 @@ export interface MetricsHistoryResponse {
   channelIndex: number
   channelName: string
   dataPoints: HistoryDataPoint[]
+  summary?: GlobalStatsSummary
 }
 
 // Key 级别历史数据点（包含 Token 数据）
@@ -388,6 +393,7 @@ export interface ChannelKeyMetricsHistoryResponse {
   channelIndex: number
   channelName: string
   keys: KeyHistoryData[]
+  summary?: GlobalStatsSummary
 }
 
 // ============== 全局统计类型 ==============

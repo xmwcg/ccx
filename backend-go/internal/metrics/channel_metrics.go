@@ -2650,11 +2650,15 @@ func (m *MetricsManager) ShouldSuspendKey(baseURL, apiKey, serviceType string) b
 
 // HistoryDataPoint 历史数据点（用于时间序列图表）
 type HistoryDataPoint struct {
-	Timestamp    time.Time `json:"timestamp"`
-	RequestCount int64     `json:"requestCount"`
-	SuccessCount int64     `json:"successCount"`
-	FailureCount int64     `json:"failureCount"`
-	SuccessRate  float64   `json:"successRate"`
+	Timestamp           time.Time `json:"timestamp"`
+	RequestCount        int64     `json:"requestCount"`
+	SuccessCount        int64     `json:"successCount"`
+	FailureCount        int64     `json:"failureCount"`
+	SuccessRate         float64   `json:"successRate"`
+	InputTokens         int64     `json:"inputTokens"`
+	OutputTokens        int64     `json:"outputTokens"`
+	CacheCreationTokens int64     `json:"cacheCreationTokens"`
+	CacheReadTokens     int64     `json:"cacheReadTokens"`
 }
 
 // KeyHistoryDataPoint Key 级别历史数据点（包含 Token 和 Cache 数据）
@@ -2718,6 +2722,10 @@ func (m *MetricsManager) GetHistoricalStats(baseURL string, activeKeys []string,
 					} else {
 						b.failureCount++
 					}
+					b.inputTokens += record.InputTokens
+					b.outputTokens += record.OutputTokens
+					b.cacheCreationTokens += record.CacheCreationInputTokens
+					b.cacheReadTokens += record.CacheReadInputTokens
 				}
 			}
 		}
@@ -2733,11 +2741,15 @@ func (m *MetricsManager) GetHistoricalStats(baseURL string, activeKeys []string,
 			successRate = float64(b.successCount) / float64(b.requestCount) * 100
 		}
 		result[i] = HistoryDataPoint{
-			Timestamp:    startTime.Add(time.Duration(i) * interval),
-			RequestCount: b.requestCount,
-			SuccessCount: b.successCount,
-			FailureCount: b.failureCount,
-			SuccessRate:  successRate,
+			Timestamp:           startTime.Add(time.Duration(i) * interval),
+			RequestCount:        b.requestCount,
+			SuccessCount:        b.successCount,
+			FailureCount:        b.failureCount,
+			SuccessRate:         successRate,
+			InputTokens:         b.inputTokens,
+			OutputTokens:        b.outputTokens,
+			CacheCreationTokens: b.cacheCreationTokens,
+			CacheReadTokens:     b.cacheReadTokens,
 		}
 	}
 
@@ -2786,6 +2798,10 @@ func (m *MetricsManager) GetHistoricalStatsMultiURL(baseURLs []string, activeKey
 					} else {
 						b.failureCount++
 					}
+					b.inputTokens += record.InputTokens
+					b.outputTokens += record.OutputTokens
+					b.cacheCreationTokens += record.CacheCreationInputTokens
+					b.cacheReadTokens += record.CacheReadInputTokens
 				}
 			}
 		}
@@ -2801,11 +2817,15 @@ func (m *MetricsManager) GetHistoricalStatsMultiURL(baseURLs []string, activeKey
 			successRate = float64(b.successCount) / float64(b.requestCount) * 100
 		}
 		result[i] = HistoryDataPoint{
-			Timestamp:    startTime.Add(time.Duration(i) * interval),
-			RequestCount: b.requestCount,
-			SuccessCount: b.successCount,
-			FailureCount: b.failureCount,
-			SuccessRate:  successRate,
+			Timestamp:           startTime.Add(time.Duration(i) * interval),
+			RequestCount:        b.requestCount,
+			SuccessCount:        b.successCount,
+			FailureCount:        b.failureCount,
+			SuccessRate:         successRate,
+			InputTokens:         b.inputTokens,
+			OutputTokens:        b.outputTokens,
+			CacheCreationTokens: b.cacheCreationTokens,
+			CacheReadTokens:     b.cacheReadTokens,
 		}
 	}
 
@@ -2814,9 +2834,13 @@ func (m *MetricsManager) GetHistoricalStatsMultiURL(baseURLs []string, activeKey
 
 // bucketData 用于时间分桶的辅助结构
 type bucketData struct {
-	requestCount int64
-	successCount int64
-	failureCount int64
+	requestCount        int64
+	successCount        int64
+	failureCount        int64
+	inputTokens         int64
+	outputTokens        int64
+	cacheCreationTokens int64
+	cacheReadTokens     int64
 }
 
 func (m *MetricsManager) GetAllKeysHistoricalStats(duration, interval time.Duration) []HistoryDataPoint {
@@ -2860,6 +2884,10 @@ func (m *MetricsManager) GetAllKeysHistoricalStats(duration, interval time.Durat
 					} else {
 						b.failureCount++
 					}
+					b.inputTokens += record.InputTokens
+					b.outputTokens += record.OutputTokens
+					b.cacheCreationTokens += record.CacheCreationInputTokens
+					b.cacheReadTokens += record.CacheReadInputTokens
 				}
 			}
 		}
@@ -2875,11 +2903,15 @@ func (m *MetricsManager) GetAllKeysHistoricalStats(duration, interval time.Durat
 			successRate = float64(b.successCount) / float64(b.requestCount) * 100
 		}
 		result[i] = HistoryDataPoint{
-			Timestamp:    startTime.Add(time.Duration(i) * interval),
-			RequestCount: b.requestCount,
-			SuccessCount: b.successCount,
-			FailureCount: b.failureCount,
-			SuccessRate:  successRate,
+			Timestamp:           startTime.Add(time.Duration(i) * interval),
+			RequestCount:        b.requestCount,
+			SuccessCount:        b.successCount,
+			FailureCount:        b.failureCount,
+			SuccessRate:         successRate,
+			InputTokens:         b.inputTokens,
+			OutputTokens:        b.outputTokens,
+			CacheCreationTokens: b.cacheCreationTokens,
+			CacheReadTokens:     b.cacheReadTokens,
 		}
 	}
 

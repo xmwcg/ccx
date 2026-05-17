@@ -377,6 +377,7 @@ type MetricsHistoryResponse struct {
 	ChannelIndex int                        `json:"channelIndex"`
 	ChannelName  string                     `json:"channelName"`
 	DataPoints   []metrics.HistoryDataPoint `json:"dataPoints"`
+	Summary      metrics.GlobalStatsSummary `json:"summary"`
 }
 
 func getChannelMetricsHistoryWithKind(metricsManager *metrics.MetricsManager, cfgManager *config.ConfigManager, kind scheduler.ChannelKind, strictValidation bool) gin.HandlerFunc {
@@ -400,6 +401,7 @@ func getChannelMetricsHistoryWithKind(metricsManager *metrics.MetricsManager, cf
 			duration, interval = parseHistoryDuration(c)
 		}
 
+		durationLabel := c.DefaultQuery("duration", "24h")
 		upstreams := channelUpstreamsByKind(cfgManager.GetConfig(), kind)
 
 		if duration > 24*time.Hour {
@@ -415,10 +417,12 @@ func getChannelMetricsHistoryWithKind(metricsManager *metrics.MetricsManager, cf
 			result := make([]MetricsHistoryResponse, 0, len(upstreams))
 			for i, upstream := range upstreams {
 				channelBuckets := filterBucketsByURLs(store, apiType, since, intervalSec, upstream.GetAllBaseURLs(), upstream.APIKeys, scheduler.NormalizedMetricsServiceType(kind, upstream.ServiceType))
+				points := convertBucketsToDataPoints(channelBuckets)
 				result = append(result, MetricsHistoryResponse{
 					ChannelIndex: i,
 					ChannelName:  upstream.Name,
-					DataPoints:   convertBucketsToDataPoints(channelBuckets),
+					DataPoints:   points,
+					Summary:      summarizeAggregatedBuckets(durationLabel, channelBuckets),
 				})
 			}
 			c.JSON(200, result)
@@ -432,6 +436,7 @@ func getChannelMetricsHistoryWithKind(metricsManager *metrics.MetricsManager, cf
 				ChannelIndex: i,
 				ChannelName:  upstream.Name,
 				DataPoints:   dataPoints,
+				Summary:      summarizeHistoryDataPoints(durationLabel, dataPoints),
 			})
 		}
 
@@ -453,9 +458,10 @@ func GetChannelMetricsHistory(metricsManager *metrics.MetricsManager, cfgManager
 
 // ChannelKeyMetricsHistoryResponse Key 级别历史指标响应
 type ChannelKeyMetricsHistoryResponse struct {
-	ChannelIndex int                       `json:"channelIndex"`
-	ChannelName  string                    `json:"channelName"`
-	Keys         []KeyMetricsHistoryResult `json:"keys"`
+	ChannelIndex int                        `json:"channelIndex"`
+	ChannelName  string                     `json:"channelName"`
+	Keys         []KeyMetricsHistoryResult  `json:"keys"`
+	Summary      metrics.GlobalStatsSummary `json:"summary"`
 }
 
 // KeyMetricsHistoryResult 单个 Key+Model 组合的历史数据
@@ -495,26 +501,7 @@ func getChannelKeyMetricsHistoryWithKind(metricsManager *metrics.MetricsManager,
 					return
 				}
 			}
-			intervalStr := c.Query("interval")
-			if intervalStr != "" {
-				interval, err = time.ParseDuration(intervalStr)
-				if err != nil {
-					c.JSON(400, gin.H{"error": "Invalid interval parameter"})
-					return
-				}
-				if interval < time.Minute {
-					interval = time.Minute
-				}
-			} else {
-				switch {
-				case duration <= time.Hour:
-					interval = time.Minute
-				case duration <= 6*time.Hour:
-					interval = 5 * time.Minute
-				default:
-					interval = 15 * time.Minute
-				}
-			}
+			interval = selectIntervalForDuration(c.Query("interval"), duration)
 		} else {
 			duration, interval = parseKeyHistoryDuration(c)
 		}
@@ -522,6 +509,8 @@ func getChannelKeyMetricsHistoryWithKind(metricsManager *metrics.MetricsManager,
 		if maxDuration > 0 && duration > maxDuration {
 			duration = maxDuration
 		}
+
+		durationLabel := c.DefaultQuery("duration", "6h")
 
 		channelID, err := strconv.Atoi(c.Param("id"))
 		if err != nil {
@@ -545,11 +534,66 @@ func getChannelKeyMetricsHistoryWithKind(metricsManager *metrics.MetricsManager,
 			Keys:         make([]KeyMetricsHistoryResult, 0),
 		}
 
+		serviceType := scheduler.NormalizedMetricsServiceType(kind, upstream.ServiceType)
+
+		if duration > 24*time.Hour {
+			// 长时间范围走 SQLite 聚合
+			store := metricsManager.GetPersistenceStore()
+			if store == nil {
+				c.JSON(400, gin.H{"error": "长时间范围查询需要启用 SQLite 持久化存储"})
+				return
+			}
+			apiType := metricsManager.GetAPIType()
+			since := time.Now().Add(-duration)
+			intervalSec := int64(interval.Seconds())
+
+			// 整个渠道的汇总
+			channelBuckets := filterBucketsByURLs(store, apiType, since, intervalSec, upstream.GetAllBaseURLs(), upstream.APIKeys, serviceType)
+			result.Summary = summarizeAggregatedBuckets(durationLabel, channelBuckets)
+
+			// 逐 key 生成曲线
+			colorIndex := 0
+			for _, keyInfo := range displayKeys {
+				keyMask := truncateKeyMask(keyInfo.KeyMask, 8)
+				keyBuckets := filterBucketsByURLs(store, apiType, since, intervalSec, upstream.GetAllBaseURLs(), []string{keyInfo.APIKey}, serviceType)
+
+				dataPoints := make([]metrics.KeyHistoryDataPoint, 0, len(keyBuckets))
+				for _, b := range keyBuckets {
+					var successRate float64
+					if b.TotalRequests > 0 {
+						successRate = float64(b.SuccessCount) / float64(b.TotalRequests) * 100
+					}
+					dataPoints = append(dataPoints, metrics.KeyHistoryDataPoint{
+						Timestamp:                b.Timestamp,
+						RequestCount:             b.TotalRequests,
+						SuccessCount:             b.SuccessCount,
+						FailureCount:             b.TotalRequests - b.SuccessCount,
+						SuccessRate:              successRate,
+						InputTokens:              b.InputTokens,
+						OutputTokens:             b.OutputTokens,
+						CacheCreationInputTokens: b.CacheCreationTokens,
+						CacheReadInputTokens:     b.CacheReadTokens,
+					})
+				}
+
+				result.Keys = append(result.Keys, KeyMetricsHistoryResult{
+					KeyMask:    keyMask,
+					Color:      keyColors[colorIndex%len(keyColors)],
+					DataPoints: dataPoints,
+				})
+				colorIndex++
+			}
+
+			c.JSON(200, result)
+			return
+		}
+
+		// 短时间范围走内存
 		colorIndex := 0
 		for _, keyInfo := range displayKeys {
 			keyMask := truncateKeyMask(keyInfo.KeyMask, 8)
-			fullDataPoints := metricsManager.GetKeyHistoricalStatsMultiURL(upstream.GetAllBaseURLs(), keyInfo.APIKey, scheduler.NormalizedMetricsServiceType(kind, upstream.ServiceType), duration, interval)
-			modelData := metricsManager.GetKeyModelHistoricalStatsMultiURL(upstream.GetAllBaseURLs(), keyInfo.APIKey, scheduler.NormalizedMetricsServiceType(kind, upstream.ServiceType), duration, interval)
+			fullDataPoints := metricsManager.GetKeyHistoricalStatsMultiURL(upstream.GetAllBaseURLs(), keyInfo.APIKey, serviceType, duration, interval)
+			modelData := metricsManager.GetKeyModelHistoricalStatsMultiURL(upstream.GetAllBaseURLs(), keyInfo.APIKey, serviceType, duration, interval)
 
 			if len(modelData) <= 1 {
 				result.Keys = append(result.Keys, KeyMetricsHistoryResult{
@@ -592,6 +636,10 @@ func getChannelKeyMetricsHistoryWithKind(metricsManager *metrics.MetricsManager,
 			}
 		}
 
+		// 内存路径的 summary：从整个渠道所有 key 聚合（而非仅 top 10 展示 keys）
+		channelDataPoints := metricsManager.GetHistoricalStatsMultiURL(upstream.GetAllBaseURLs(), upstream.APIKeys, serviceType, duration, interval)
+		result.Summary = summarizeHistoryDataPoints(durationLabel, channelDataPoints)
+
 		c.JSON(200, result)
 	}
 }
@@ -603,7 +651,7 @@ func GetChannelKeyMetricsHistory(metricsManager *metrics.MetricsManager, cfgMana
 	if isResponses {
 		kind = scheduler.ChannelKindResponses
 	}
-	return getChannelKeyMetricsHistoryWithKind(metricsManager, cfgManager, kind, true, 24*time.Hour)
+	return getChannelKeyMetricsHistoryWithKind(metricsManager, cfgManager, kind, true, 30*24*time.Hour)
 }
 
 // truncateKeyMask 截取 keyMask 的前 N 个字符
@@ -715,7 +763,7 @@ func GetGeminiChannelMetricsHistory(metricsManager *metrics.MetricsManager, cfgM
 // GetGeminiChannelKeyMetricsHistory 获取 Gemini 渠道下各 Key 的历史数据（用于 Key 趋势图表）
 // GET /api/gemini/channels/:id/keys/metrics/history?duration=6h
 func GetGeminiChannelKeyMetricsHistory(metricsManager *metrics.MetricsManager, cfgManager *config.ConfigManager) gin.HandlerFunc {
-	return getChannelKeyMetricsHistoryWithKind(metricsManager, cfgManager, scheduler.ChannelKindGemini, true, 24*time.Hour)
+	return getChannelKeyMetricsHistoryWithKind(metricsManager, cfgManager, scheduler.ChannelKindGemini, true, 30*24*time.Hour)
 }
 
 // GetGeminiChannelMetrics 获取 Gemini 渠道指标
@@ -735,7 +783,7 @@ func GetImagesChannelMetricsHistory(metricsManager *metrics.MetricsManager, cfgM
 
 // GetImagesChannelKeyMetricsHistory 获取 Images 渠道下各 Key 的历史数据
 func GetImagesChannelKeyMetricsHistory(metricsManager *metrics.MetricsManager, cfgManager *config.ConfigManager) gin.HandlerFunc {
-	return getChannelKeyMetricsHistoryWithKind(metricsManager, cfgManager, scheduler.ChannelKindImages, false, 24*time.Hour)
+	return getChannelKeyMetricsHistoryWithKind(metricsManager, cfgManager, scheduler.ChannelKindImages, false, 30*24*time.Hour)
 }
 
 // GetChatChannelMetrics 获取 Chat 渠道指标
@@ -750,7 +798,7 @@ func GetChatChannelMetricsHistory(metricsManager *metrics.MetricsManager, cfgMan
 
 // GetChatChannelKeyMetricsHistory 获取 Chat 渠道下各 Key 的历史数据
 func GetChatChannelKeyMetricsHistory(metricsManager *metrics.MetricsManager, cfgManager *config.ConfigManager) gin.HandlerFunc {
-	return getChannelKeyMetricsHistoryWithKind(metricsManager, cfgManager, scheduler.ChannelKindChat, false, 24*time.Hour)
+	return getChannelKeyMetricsHistoryWithKind(metricsManager, cfgManager, scheduler.ChannelKindChat, false, 30*24*time.Hour)
 }
 
 // ResumeChannelWithKind 恢复指定类型的熔断渠道（重置熔断状态、恢复拉黑 Key，保留历史统计）
@@ -937,12 +985,70 @@ func convertBucketsToDataPoints(buckets []metrics.AggregatedBucket) []metrics.Hi
 			successRate = float64(b.SuccessCount) / float64(b.TotalRequests) * 100
 		}
 		points = append(points, metrics.HistoryDataPoint{
-			Timestamp:    b.Timestamp,
-			RequestCount: b.TotalRequests,
-			SuccessCount: b.SuccessCount,
-			FailureCount: b.TotalRequests - b.SuccessCount,
-			SuccessRate:  successRate,
+			Timestamp:           b.Timestamp,
+			RequestCount:        b.TotalRequests,
+			SuccessCount:        b.SuccessCount,
+			FailureCount:        b.TotalRequests - b.SuccessCount,
+			SuccessRate:         successRate,
+			InputTokens:         b.InputTokens,
+			OutputTokens:        b.OutputTokens,
+			CacheCreationTokens: b.CacheCreationTokens,
+			CacheReadTokens:     b.CacheReadTokens,
 		})
 	}
 	return points
+}
+
+func summarizeHistoryDataPoints(duration string, points []metrics.HistoryDataPoint) metrics.GlobalStatsSummary {
+	var s metrics.GlobalStatsSummary
+	s.Duration = duration
+	for _, p := range points {
+		s.TotalRequests += p.RequestCount
+		s.TotalSuccess += p.SuccessCount
+		s.TotalFailure += p.FailureCount
+		s.TotalInputTokens += p.InputTokens
+		s.TotalOutputTokens += p.OutputTokens
+		s.TotalCacheCreationTokens += p.CacheCreationTokens
+		s.TotalCacheReadTokens += p.CacheReadTokens
+	}
+	if s.TotalRequests > 0 {
+		s.AvgSuccessRate = float64(s.TotalSuccess) / float64(s.TotalRequests) * 100
+	}
+	return s
+}
+
+func summarizeKeyHistoryDataPoints(duration string, points []metrics.KeyHistoryDataPoint) metrics.GlobalStatsSummary {
+	var s metrics.GlobalStatsSummary
+	s.Duration = duration
+	for _, p := range points {
+		s.TotalRequests += p.RequestCount
+		s.TotalSuccess += p.SuccessCount
+		s.TotalFailure += p.FailureCount
+		s.TotalInputTokens += p.InputTokens
+		s.TotalOutputTokens += p.OutputTokens
+		s.TotalCacheCreationTokens += p.CacheCreationInputTokens
+		s.TotalCacheReadTokens += p.CacheReadInputTokens
+	}
+	if s.TotalRequests > 0 {
+		s.AvgSuccessRate = float64(s.TotalSuccess) / float64(s.TotalRequests) * 100
+	}
+	return s
+}
+
+func summarizeAggregatedBuckets(duration string, buckets []metrics.AggregatedBucket) metrics.GlobalStatsSummary {
+	var s metrics.GlobalStatsSummary
+	s.Duration = duration
+	for _, b := range buckets {
+		s.TotalRequests += b.TotalRequests
+		s.TotalSuccess += b.SuccessCount
+		s.TotalFailure += b.TotalRequests - b.SuccessCount
+		s.TotalInputTokens += b.InputTokens
+		s.TotalOutputTokens += b.OutputTokens
+		s.TotalCacheCreationTokens += b.CacheCreationTokens
+		s.TotalCacheReadTokens += b.CacheReadTokens
+	}
+	if s.TotalRequests > 0 {
+		s.AvgSuccessRate = float64(s.TotalSuccess) / float64(s.TotalRequests) * 100
+	}
+	return s
 }
