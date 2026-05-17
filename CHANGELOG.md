@@ -1,3 +1,9 @@
+## [Unreleased]
+
+### 修复
+
+- **Responses SSE keep-alive** - 为 Responses 流式代理增加 SSE keep-alive 机制，每 15 秒向下游发送 `: keepalive` 注释行，防止 DeepSeek 等慢上游思考期间触发 Codex 客户端 idle timeout 断连 (#67)
+
 ## [v2.7.0] - 2026-05-17
 
 ### 新增

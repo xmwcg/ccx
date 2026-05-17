@@ -910,13 +910,30 @@ func handleStreamSuccess(
 		processLine(bufferedLine)
 	}
 
-	// 继续从 lineChan 读取剩余的流数据
-	for sl := range lineChan {
-		if !sl.ok {
-			break
+	// 继续从 lineChan 读取剩余的流数据（带 SSE keep-alive 防止下游 idle timeout）
+	keepaliveTicker := time.NewTicker(15 * time.Second)
+	defer keepaliveTicker.Stop()
+
+	for {
+		select {
+		case sl, ok := <-lineChan:
+			if !ok || !sl.ok {
+				goto streamEnd
+			}
+			processLine(sl.text)
+			keepaliveTicker.Reset(15 * time.Second)
+		case <-keepaliveTicker.C:
+			if !clientGone {
+				_, err := c.Writer.Write([]byte(": keepalive\n\n"))
+				if err != nil {
+					clientGone = true
+				} else if flusher != nil {
+					flusher.Flush()
+				}
+			}
 		}
-		processLine(sl.text)
 	}
+streamEnd:
 
 	// 兜底：如果上游未发送终止符（如 MiniMax 不发 [DONE]），补发 response.completed
 	if !completedEventSent && !clientGone {
