@@ -9,6 +9,7 @@
 
 ### 修复
 
+- **桌面外壳 Wails Runtime 422** - 升级 `wails3` CLI 与 `@wailsio/runtime` 客户端到 alpha.92 / alpha.79，匹配 alpha.79 引入的 binding transport refactor（请求改用 JSON body），消除旧 CLI（alpha.40）读 URL query 时的 `missing object value` 422 错误，桌面事件订阅（`desktop:show-tab` / `desktop:tray-error`）和 typed binding 调用恢复正常；同步升级前端工具链 vite 8 / vue-tsc 3 / typescript 6 / vue 3.5。
 - **空/畸形 Tool Call 自动重试** - 在 Fuzzy 模式下将空参数或非法 JSON 的 tool/function call 视为空响应并复用现有 failover，降低上游偶发 `Read({})` 等畸形工具调用对下游客户端的影响
   - 影响模块：Messages/Chat/Responses/Gemini 的非流式空响应判定、Messages/Responses 流式预检、Chat 流式写头前缓冲预检
 

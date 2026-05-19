@@ -14,7 +14,7 @@ export class Status {
     "pid": number;
     "binaryPath": string;
     "dataDir": string;
-    "health": { [_: string]: any };
+    "health": { [_ in string]?: any };
     "lastError": string;
     "logs": string[];
 
