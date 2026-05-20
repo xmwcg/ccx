@@ -121,7 +121,7 @@ func responsesToolsToGemini(tools []map[string]interface{}) []types.GeminiTool {
 		declarations = append(declarations, types.GeminiFunctionDeclaration{
 			Name:        name,
 			Description: description,
-			Parameters:  parameters,
+			Parameters:  types.SanitizeGeminiToolSchema(parameters),
 		})
 	}
 	if len(declarations) == 0 {

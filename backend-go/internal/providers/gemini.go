@@ -233,6 +233,10 @@ func (p *GeminiProvider) convertMessage(msg types.ClaudeMessage) map[string]inte
 }
 
 // convertTools 转换工具
+//
+// 处理链：cleanJsonSchema（剥离 OpenAI 通用元字段）
+// → SanitizeGeminiToolSchema（剥离 Gemini 不支持的字段，例如 propertyNames、exclusiveMinimum、const）
+// → normalizeGeminiParameters（确保有 type/properties，符合 Gemini 协议要求）
 func (p *GeminiProvider) convertTools(claudeTools []types.ClaudeTool) []map[string]interface{} {
 	tools := []map[string]interface{}{}
 
@@ -240,7 +244,7 @@ func (p *GeminiProvider) convertTools(claudeTools []types.ClaudeTool) []map[stri
 		tools = append(tools, map[string]interface{}{
 			"name":        tool.Name,
 			"description": tool.Description,
-			"parameters":  normalizeGeminiParameters(cleanJsonSchema(tool.InputSchema)),
+			"parameters":  normalizeGeminiParameters(types.SanitizeGeminiToolSchema(cleanJsonSchema(tool.InputSchema))),
 		})
 	}
 

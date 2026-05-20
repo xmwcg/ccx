@@ -175,13 +175,14 @@ func (fd *GeminiFunctionDeclaration) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-// sanitizeGeminiToolSchema 清洗工具参数 schema，以兼容部分上游对 parameters 字段的严格校验。
+// SanitizeGeminiToolSchema 清洗工具参数 schema，以兼容 Gemini 上游对 parameters 字段的严格校验。
 //
 // 已知不兼容字段：
-// - $schema
-// - additionalProperties
-// - const（转换为 enum: [const]）
-func sanitizeGeminiToolSchema(v interface{}) interface{} {
+// - $schema / title / examples / additionalProperties：JSON Schema 元字段，Gemini 不支持
+// - propertyNames：Gemini 不支持
+// - exclusiveMinimum / exclusiveMaximum：Gemini 不支持（boolean 形式和 number 形式均移除）
+// - const：转换为 enum: [const]
+func SanitizeGeminiToolSchema(v interface{}) interface{} {
 	switch vv := v.(type) {
 	case map[string]interface{}:
 		out := make(map[string]interface{}, len(vv))
@@ -190,20 +191,20 @@ func sanitizeGeminiToolSchema(v interface{}) interface{} {
 
 		for k, val := range vv {
 			switch k {
-			case "$schema", "additionalProperties":
+			case "$schema", "title", "examples", "additionalProperties", "propertyNames", "exclusiveMinimum", "exclusiveMaximum":
 				continue
 			case "const":
 				constValue = val
 				hasConst = true
 				continue
 			default:
-				out[k] = sanitizeGeminiToolSchema(val)
+				out[k] = SanitizeGeminiToolSchema(val)
 			}
 		}
 
 		if hasConst {
 			if _, ok := out["enum"]; !ok {
-				out["enum"] = []interface{}{sanitizeGeminiToolSchema(constValue)}
+				out["enum"] = []interface{}{SanitizeGeminiToolSchema(constValue)}
 			}
 		}
 
@@ -211,12 +212,17 @@ func sanitizeGeminiToolSchema(v interface{}) interface{} {
 	case []interface{}:
 		out := make([]interface{}, len(vv))
 		for i := range vv {
-			out[i] = sanitizeGeminiToolSchema(vv[i])
+			out[i] = SanitizeGeminiToolSchema(vv[i])
 		}
 		return out
 	default:
 		return v
 	}
+}
+
+// sanitizeGeminiToolSchema 保持向后兼容（内部 UnmarshalJSON 仍使用旧名）。
+func sanitizeGeminiToolSchema(v interface{}) interface{} {
+	return SanitizeGeminiToolSchema(v)
 }
 
 // GeminiGenerationConfig 生成配置
